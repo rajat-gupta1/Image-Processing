@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"proj2/png"
-	// "image"
 	"strings"
 )
 
@@ -40,6 +39,7 @@ func RunSequential(config Config) {
 				print(err)
 			}
 
+			// Applying effects
 			for j, effect := range req.Effects {
 				if j > 0 {
 					pngImg.Inout()
