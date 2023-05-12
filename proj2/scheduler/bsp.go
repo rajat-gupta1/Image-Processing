@@ -1,20 +1,165 @@
 package scheduler
 
+import (
+	"sync"
+	"encoding/json"
+	"proj2/png"
+	"os"
+	"strings"
+)
+
 type bspWorkerContext struct {
-	// Define the necessary fields for your implementation
+
+	// For locking while performing operations
+	Cond *sync.Cond
+	Mu sync.Mutex
+	Done bool 
+
+	Threads int
+	ThreadsFinished int
+	ThreadsWaiting int
+	DirectoryIdx int
+	EffectCount int
+	Directories []string
+
+	Reader *json.Decoder
+	Request *Request
+	PngImg *png.Image
 }
 
 func NewBSPContext(config Config) *bspWorkerContext {
-	//Initialize the context
-	return nil
+	ctx := &bspWorkerContext{}
+	ctx.Cond = sync.NewCond(&ctx.Mu)
+	ctx.Done = false
+
+	ctx.Threads = config.ThreadCount
+	ctx.ThreadsWaiting = 0
+	
+	file, _ := os.Open("data/effects.txt")
+	ctx.Reader = json.NewDecoder(file)
+
+	ctx.Request = &Request{Effects: []string{}}
+
+	ctx.Directories = strings.Split(config.DataDirs, "+")
+	ctx.DirectoryIdx = 0
+	ctx.EffectCount = 0
+	ctx.ThreadsFinished = 0
+
+	return ctx
 }
 
 func RunBSPWorker(id int, ctx *bspWorkerContext) {
 	for {
-		// Implement the BSP model here.
-		// No additional loops can be used in this implementation. T
-		// This goes to calling other functions. No other called
-		// function you define or are using can have looping being done for you.
-		break
+		ctx.Mu.Lock()
+		ctx.ThreadsWaiting += 1
+
+		// If this thread is the last thread, we want this to instruct other threads
+		if ctx.ThreadsWaiting == ctx.Threads {
+			ctx.ThreadsWaiting = 0
+
+			// If this is the first effect in the image (Its a new image)
+			if ctx.EffectCount == 0{
+
+				// If this is the first type in the directory
+				if ctx.DirectoryIdx == 0 {
+
+					// In case we are getting more images
+					if ctx.Reader.More() {
+						ctx.Request = &Request{}
+						ctx.Reader.Decode(ctx.Request)
+						filePath := "data/in/" + ctx.Directories[ctx.DirectoryIdx] + "/" + ctx.Request.InPath
+						ctx.PngImg, _ = png.Load(filePath)
+
+						// Waking up workers to do the tasks
+						ctx.Cond.Broadcast()
+						ctx.Mu.Unlock()
+
+					// We are done with all the images
+					} else {
+						ctx.Done = true
+						ctx.Cond.Broadcast()
+						ctx.Mu.Unlock()
+						return
+					}
+
+					// In case there were multiple type of files in the directory
+				} else if ctx.DirectoryIdx < len(ctx.Directories) {
+					filePath := "data/in/" + ctx.Directories[ctx.DirectoryIdx] + "/" + ctx.Request.InPath
+					ctx.PngImg, _ = png.Load(filePath)
+
+					ctx.Cond.Broadcast()
+					ctx.Mu.Unlock()
+				}
+
+			// There were multiple effects for this image, instructing threads to finish the remaining effects
+			} else {
+				ctx.Cond.Broadcast()
+				ctx.Mu.Unlock()
+			}
+		} else {
+
+			// In case it wasnt the last thread
+			ctx.Cond.Wait()
+
+			if ctx.Done{
+				ctx.Mu.Unlock()
+				return
+			}
+			ctx.Mu.Unlock()
+		}
+
+		// Each of the threads work on a part of each image
+		stepSize := ctx.PngImg.Bounds.Max.Y / ctx.Threads
+		YStart := id * stepSize
+		YEnd := YStart + stepSize
+		
+		// In case its the last thread
+		if id == ctx.Threads - 1 {
+			YEnd = ctx.PngImg.Bounds.Max.Y
+		}
+
+		// Which function to call depends on the effect requested
+		if ctx.Request.Effects[ctx.EffectCount] == "G" {
+			ctx.PngImg.Grayscale(YStart, YEnd)
+		} else if ctx.Request.Effects[ctx.EffectCount] == "E" {
+			ctx.PngImg.Edge_Det(YStart, YEnd)
+		} else if ctx.Request.Effects[ctx.EffectCount] == "S" {
+			ctx.PngImg.Sharpen(YStart, YEnd)
+		} else if ctx.Request.Effects[ctx.EffectCount] == "B" {
+			ctx.PngImg.Blur(YStart, YEnd)
+		}
+
+		// Locking to update the threads count and writing to the file/getting the image ready for the next effect
+		ctx.Mu.Lock()
+		ctx.ThreadsFinished += 1
+
+		if ctx.ThreadsFinished == ctx.Threads {
+			ctx.ThreadsFinished = 0
+			ctx.EffectCount += 1
+
+			if ctx.EffectCount == len(ctx.Request.Effects) {
+				outfilePath := "data/out/" + ctx.Directories[ctx.DirectoryIdx] + "_" + ctx.Request.OutPath 
+				err := ctx.PngImg.Save(outfilePath)
+
+				if err != nil {
+					panic(err)
+				}
+
+				ctx.EffectCount = 0
+				ctx.DirectoryIdx += 1
+
+				if ctx.DirectoryIdx == len(ctx.Directories) {
+					ctx.DirectoryIdx = 0
+				}
+			} else {
+				ctx.PngImg.Inout()
+			}
+			ctx.Cond.Broadcast()
+		} else {
+
+			// Waiting till the last thread finishes writing on file or get the image ready for the next effect
+			ctx.Cond.Wait()
+		}
+		ctx.Mu.Unlock()
 	}
 }

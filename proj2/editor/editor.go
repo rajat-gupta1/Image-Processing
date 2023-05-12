@@ -19,6 +19,7 @@ func main() {
 		fmt.Println(usage)
 		return
 	}
+
 	config := scheduler.Config{DataDirs: "", Mode: "", ThreadCount: 0}
 	config.DataDirs = os.Args[1]
 

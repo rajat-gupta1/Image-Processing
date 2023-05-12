@@ -1,4 +1,4 @@
-// Package png allows for loading png images and applying
+// Package png allows for loadIng png images and applying
 // image flitering effects on them
 package png
 
@@ -13,14 +13,23 @@ import (
 // The Image represents a structure for working with PNG images.
 // From Professor Samuels: You are allowed to update this and change it as you wish!
 type Image struct {
-	in     *image.RGBA64   //The original pixels before applying the effect
-	out    *image.RGBA64   //The updated pixels after applying teh effect
+	In     *image.RGBA64   //The original pixels before applying the effect
+	Out    *image.RGBA64   //The updated pixels after applying teh effect
 	Bounds image.Rectangle //The size of the image
+	Temp     *image.RGBA64
+	Effects []string
+	OutPath string
 }
 
 //
 // Public functions
 //
+
+func (img *Image) Inout() {
+	img.Temp = img.In
+	img.In = img.Out
+	img.Out = img.Temp
+}
 
 // Load returns a Image that was loaded based on the filePath parameter
 // From Professor Samuels:  You are allowed to modify and update this as you wish
@@ -51,8 +60,8 @@ func Load(filePath string) (*Image, error) {
 		}
 	}
 	task := &Image{}
-	task.in = inImg
-	task.out = outImg
+	task.In = inImg
+	task.Out = outImg
 	task.Bounds = bounds
 	return task, nil
 }
@@ -67,7 +76,7 @@ func (img *Image) Save(filePath string) error {
 	}
 	defer outWriter.Close()
 
-	err = png.Encode(outWriter, img.out)
+	err = png.Encode(outWriter, img.Out)
 	if err != nil {
 		return err
 	}
