@@ -132,25 +132,36 @@ func Worker(done <- chan interface{}, images <- chan *png.Image, threads int, co
 	workerReturn <- true
 }
 
+// Function for calling the miniworkers. To do tasks on each image
 func miniWorker(done <- chan interface{}, push <- chan string, signal chan <- bool, imgSlices <- chan *png.Image, stopGo chan interface{}, YStart int, YEnd int) {
 
+	// Getting this slice of the image
 	imgSlice := <-imgSlices
 
+	// Infinite Loop
 	for {
 		select {
+
+		// Returning in case everything is done
 		case <- done:
 			return
+
+		// Applying effect based on the effect selected
 		case effect := <-push:
 			if effect == "G" {
-				imgSlice.Grayscale(-1, -1)
+				imgSlice.Grayscale(YStart, YEnd)
 			} else if effect == "E" {
-				imgSlice.Edge_Det(-1, -1)
+				imgSlice.Edge_Det(YStart, YEnd)
 			} else if effect == "S" {
-				imgSlice.Sharpen(-1, -1)
+				imgSlice.Sharpen(YStart, YEnd)
 			} else if effect == "B" {
-				imgSlice.Blur(-1, -1)
+				imgSlice.Blur(YStart, YEnd)
 			}
+
+			// Signalling done
 			signal <- true
+
+			// If stopGo, then returning
 		case <- stopGo:
 			return 
 		}

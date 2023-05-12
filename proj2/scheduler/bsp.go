@@ -16,7 +16,6 @@ type bspWorkerContext struct {
 	Done bool 
 
 	Threads int
-	ThreadsFinished int
 	ThreadsWaiting int
 	DirectoryIdx int
 	EffectCount int
@@ -43,7 +42,6 @@ func NewBSPContext(config Config) *bspWorkerContext {
 	ctx.Directories = strings.Split(config.DataDirs, "+")
 	ctx.DirectoryIdx = 0
 	ctx.EffectCount = 0
-	ctx.ThreadsFinished = 0
 
 	return ctx
 }
@@ -72,7 +70,6 @@ func RunBSPWorker(id int, ctx *bspWorkerContext) {
 
 						// Waking up workers to do the tasks
 						ctx.Cond.Broadcast()
-						ctx.Mu.Unlock()
 
 					// We are done with all the images
 					} else {
@@ -88,13 +85,11 @@ func RunBSPWorker(id int, ctx *bspWorkerContext) {
 					ctx.PngImg, _ = png.Load(filePath)
 
 					ctx.Cond.Broadcast()
-					ctx.Mu.Unlock()
 				}
 
 			// There were multiple effects for this image, instructing threads to finish the remaining effects
 			} else {
 				ctx.Cond.Broadcast()
-				ctx.Mu.Unlock()
 			}
 		} else {
 
@@ -105,8 +100,8 @@ func RunBSPWorker(id int, ctx *bspWorkerContext) {
 				ctx.Mu.Unlock()
 				return
 			}
-			ctx.Mu.Unlock()
 		}
+		ctx.Mu.Unlock()
 
 		// Each of the threads work on a part of each image
 		stepSize := ctx.PngImg.Bounds.Max.Y / ctx.Threads
@@ -131,12 +126,16 @@ func RunBSPWorker(id int, ctx *bspWorkerContext) {
 
 		// Locking to update the threads count and writing to the file/getting the image ready for the next effect
 		ctx.Mu.Lock()
-		ctx.ThreadsFinished += 1
+		ctx.ThreadsWaiting += 1
 
-		if ctx.ThreadsFinished == ctx.Threads {
-			ctx.ThreadsFinished = 0
+		// In Case its the last thread
+		if ctx.ThreadsWaiting == ctx.Threads {
+
+			// Resetting the counter
+			ctx.ThreadsWaiting = 0
 			ctx.EffectCount += 1
 
+			// All the effects have been applied
 			if ctx.EffectCount == len(ctx.Request.Effects) {
 				outfilePath := "data/out/" + ctx.Directories[ctx.DirectoryIdx] + "_" + ctx.Request.OutPath 
 				err := ctx.PngImg.Save(outfilePath)
@@ -151,6 +150,7 @@ func RunBSPWorker(id int, ctx *bspWorkerContext) {
 				if ctx.DirectoryIdx == len(ctx.Directories) {
 					ctx.DirectoryIdx = 0
 				}
+				// Continuing with the same image and different effect
 			} else {
 				ctx.PngImg.Inout()
 			}
